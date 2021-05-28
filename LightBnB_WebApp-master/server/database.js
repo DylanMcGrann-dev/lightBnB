@@ -1,6 +1,7 @@
 const properties = require('./json/properties.json');
 const users = require('./json/users.json');
 const { Pool } = require('pg');
+
 const pool = new Pool({
   user: 'vagrant',
   password: '123',
@@ -8,6 +9,8 @@ const pool = new Pool({
   database: 'lightbnb'
 });
 /// Users
+
+pool.connect(() => console.log('connected to database'))
 
 /**
  * Get a single user from the database given their email.
@@ -109,18 +112,41 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 const getAllProperties = function(options, limit = 10) {
-  return pool 
-    .query(`
-    SELECT *
-    FROM properties
-    LIMIT $1`,[limit])
-    .then((result) => {
-      return result.rows
-    })
-    .catch((err) => {
-      return err.message;
-    });
- 
+  const queryParams = [];
+
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  JOIN users ON users.id = owner_id
+  `;
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryString += `WHERE city LIKE $${queryParams.length} `;
+  } else if (options.owner_id) {
+    queryParams.push(`${options.owner_id}`);
+    queryString += `WHERE users.id = $${queryParams.length} `;
+  } else if (options.minimum_price_per_night) {
+    queryParams.push(`${options.owner_id}`);
+    queryString += `AND WHERE cost_per_night > $${queryParams.length} `;
+  } else if (options.maximum_price_per_night) {
+    queryParams.push(`${options.owner_id}`);
+    queryString += `AND WHERE cost_per_night < $${queryParams.length} `;
+  } else if (options.minimum_rating) {
+    queryParams.push(`${options.minimum_rating}`);
+    queryString += `AND WHERE rating >= $${queryParams.length} `;
+  }
+  queryParams.push(limit);
+  queryString += `
+  GROUP BY properties.id
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+  `;
+  
+  return pool.query(queryString, queryParams).then((res) => {
+    return res.rows;
+  });
+  
 };
 exports.getAllProperties = getAllProperties;
 
